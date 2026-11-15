@@ -3,13 +3,17 @@ import streamlit as st
 import json
 import urllib.parse
 import urllib.request
+import time
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+
 # LOAD GEMINI API
 load_dotenv()
 client = genai.Client()
+
 
 # PAGE SETTINGS
 st.set_page_config(
@@ -17,6 +21,7 @@ st.set_page_config(
     page_icon="🎧",
     layout="wide"
 )
+
 
 # DREAMY DESIGN
 st.markdown("""
@@ -61,6 +66,7 @@ div[data-testid="stForm"] {
 </style>
 """, unsafe_allow_html=True)
 
+
 # HOMEPAGE
 st.markdown(
     "<h1 style='text-align:center;'>MOODSCAPE ✦</h1>",
@@ -83,6 +89,7 @@ st.write(
     "and the artists you love. We'll create a playlist "
     "that feels like YOU."
 )
+
 
 # USER QUESTIONNAIRE
 with st.form("music_preferences"):
@@ -166,6 +173,7 @@ with st.form("music_preferences"):
 
     submitted = st.form_submit_button("✦ Create My Soundscape")
 
+
 # GENERATE PLAYLIST
 if submitted:
 
@@ -189,8 +197,6 @@ if submitted:
         final_mood = custom_mood if mood == "Something else" else mood
 
         number_of_songs = round(duration / 3.5)
-
-        
 
         prompt = f"""
 You are MOODSCAPE, an intelligent music curator.
@@ -268,116 +274,125 @@ The Opening, The Drift, The Arrival.
 Return approximately {number_of_songs} songs.
 """
 
-
         st.markdown("---")
         st.markdown("## ✧ Your Personal Soundscape")
 
         try:
             with st.spinner("Creating your musical universe... 🎧"):
 
-                response = client.models.generate_content(
-                    model="gemini-3.5-flash-lite",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
-                )
+                # GEMINI RETRY SYSTEM
+                response = None
 
-            playlist = json.loads(response.text)
-
-            st.markdown(f"# 🎧 {playlist['playlist_name']}")
-            st.write(playlist["description"])
-
-            st.markdown("---")
-            st.markdown("### ✦ Your Tracks")
-
-            current_phase = None
-            for i, song in enumerate(playlist["songs"], start=1):
-                      current_phase = None
-
-            for i, song in enumerate(playlist["songs"], start=1):
-
-                phase = song.get("phase", "The Drift")
-
-                if phase != current_phase:
-                    st.markdown(f"### ✧ {phase}")
-                    current_phase = phase
-
-                title = song["title"]
-                artist = song["artist"]
-
-                # Create a Spotify search link
-                search_query = urllib.parse.quote(
-                    f"{title} {artist}"
-                )
-                spotify_link = (
-                    f"https://open.spotify.com/search/{search_query}"
-                )
-
-                # Find album artwork
-                image_url = None
-
-                try:
-                    search_url = (
-                        "https://itunes.apple.com/search?"
-                        + urllib.parse.urlencode({
-                            "term": f"{title} {artist}",
-                            "entity": "song",
-                            "limit": 1
-                        })
-                    )
-
-                    with urllib.request.urlopen(
-                        search_url, timeout=5
-                    ) as result:
-                        data = json.loads(result.read().decode())
-
-                    if data.get("results"):
-                        image_url = data["results"][0].get(
-                            "artworkUrl100"
+                for attempt in range(3):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-3.5-flash-lite",
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json"
+                            )
                         )
+                        break
 
-                except Exception:
+                    except Exception:
+                        if attempt < 2:
+                            time.sleep(2 ** (attempt + 1))
+                        else:
+                            raise
+
+                # PROCESS AI RESPONSE
+                playlist = json.loads(response.text)
+
+                st.markdown(f"# 🎧 {playlist['playlist_name']}")
+                st.write(playlist["description"])
+
+                st.markdown("---")
+                st.markdown("### ✦ Your Tracks")
+
+                current_phase = None
+
+                for i, song in enumerate(playlist["songs"], start=1):
+
+                    phase = song.get("phase", "The Drift")
+
+                    if phase != current_phase:
+                        st.markdown(f"### ✧ {phase}")
+                        current_phase = phase
+
+                    title = song["title"]
+                    artist = song["artist"]
+
+                    # CREATE SPOTIFY SEARCH LINK
+                    search_query = urllib.parse.quote(
+                        f"{title} {artist}"
+                    )
+
+                    spotify_link = (
+                        f"https://open.spotify.com/search/{search_query}"
+                    )
+
+                    # FIND ALBUM ARTWORK
                     image_url = None
 
-                # DISPLAY THE SONG CARD
-                with st.container(border=True):
-
-                    col1, col2 = st.columns([1, 3])
-
-                    with col1:
-                        if image_url:
-                            st.image(image_url, use_container_width=True)
-                        else:
-                            st.markdown("🎵")
-
-                    with col2:
-                        st.markdown(
-                            f"### {i:02d}. {title}"
+                    try:
+                        search_url = (
+                            "https://itunes.apple.com/search?"
+                            + urllib.parse.urlencode({
+                                "term": f"{title} {artist}",
+                                "entity": "song",
+                                "limit": 1
+                            })
                         )
 
-                        st.write(f"**{artist}**")
+                        with urllib.request.urlopen(
+                            search_url, timeout=5
+                        ) as result:
+                            data = json.loads(result.read().decode())
 
-                        st.caption(
-                            f"✧ {song['reason']}"
-                        )
+                        if data.get("results"):
+                            image_url = data["results"][0].get(
+                                "artworkUrl100"
+                            )
 
-                        st.markdown(
-                            f"[♫ Find on Spotify]({spotify_link})"
-                        )
+                    except Exception:
+                        image_url = None
 
-            st.markdown("---")
-            st.markdown("### 🌙 The Listening Experience")
+                    # DISPLAY THE SONG CARD
+                    with st.container(border=True):
 
-            st.write(playlist["listening_experience"])
+                        col1, col2 = st.columns([1, 3])
 
-            st.success("Your soundscape has been generated!")
+                        with col1:
+                            if image_url:
+                                st.image(
+                                    image_url,
+                                    use_container_width=True
+                                )
+                            else:
+                                st.markdown("🎵")
 
-            st.caption(
-                "Recommendations are AI-generated. "
-                "Please verify song details before adding "
-                "them to your music library."
-            )
+                        with col2:
+                            st.markdown(f"### {i:02d}. {title}")
+                            st.write(f"**{artist}**")
+
+                            st.caption(f"✧ {song['reason']}")
+
+                            st.markdown(
+                                f"[♫ Find on Spotify]({spotify_link})"
+                            )
+
+                st.markdown("---")
+                st.markdown("### 🌙 The Listening Experience")
+
+                st.write(playlist["listening_experience"])
+
+                st.success("Your soundscape has been generated!")
+
+                st.caption(
+                    "Recommendations are AI-generated. "
+                    "Please verify song details before adding "
+                    "them to your music library."
+                )
 
         except json.JSONDecodeError:
             st.error(
